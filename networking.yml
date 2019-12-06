@@ -1,0 +1,330 @@
+Description:
+    Alex Despotakis
+    Cloud DevOps Engineering Part 2 Project
+
+    This template seeks to replicate the schematics described in aws_diagram.png
+    All of the resources are listed in alphabetical order by type and by name
+
+Parameters:
+
+    EnvironmentName:
+        Description: An environment name that will be prefixed to a resource
+        Type: String
+
+    VpcCIDR:
+        Description: Enter the IP range in CIDR notation for the VPC
+        Type: String
+        Default: 10.0.0.0/16
+
+    PublicSubnet1CIDR:
+        Description: IP range in CIDR notation for public subnet in VPC
+        Type: String
+        Default: 10.0.0.0/24
+
+    PublicSubnet2CIDR:
+        Description: IP range in CIDR notation for public subnet in VPC
+        Type: String
+        Default: 10.0.1.0/24
+
+    PrivateSubnet1CIDR:
+        Description: IP range in CIDR notation for private subnet in VPC
+        Type: String
+        Default: 10.0.2.0/24
+
+    PrivateSubnet2CIDR:
+        Description: IP range in CIDR notation for private subnet in VPC
+        Type: String
+        Default: 10.0.3.0/24
+
+
+Resources:
+
+    # Create the VPC that will hold the public and private subnets, Elastic load balancer, NAT gateway, EC2 instances,
+    # security groups, and the autoscaling group for the EC2 instances.
+    UdacityProjectVPC:
+        Type: AWS::EC2::VPC
+        Properties:
+            CidrBlock: !Ref VpcCIDR
+            EnableDnsHostnames: true
+            Tags:
+            -   Key: Name
+                Value: !Ref EnvironmentName
+
+    # Provide an Internet Gateway to
+    #   1) grant end users access to the Elastic Load Balancer, accessing the EC2 Instances in the private subnets
+    #   2) forward traffic to / from the NAT gateway from / to the S3 bucket
+    InternetGateway:
+        Type: AWS::EC2::InternetGateway
+        Properties:
+            Tags:
+            -   Key: Name
+                Value: !Ref EnvironmentName
+
+    # Necessary attachment for the internet Gateway
+    InternetGatewayAttachment:
+        Type: AWS::EC2::VPCGatewayAttachment
+        Properties:
+            InternetGatewayId: !Ref InternetGateway
+            VpcId: !Ref UdacityProjectVPC
+
+    # Configure the NAT gateways to communicate with their respective EC2 instances in the private subnets as well as
+    # the S3 bucket that exists outside of the VPC
+    NATGateway1EIP:
+        Type: AWS::EC2::EIP
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            Domain: vpc
+
+    NATGateway2EIP:
+        Type: AWS::EC2::EIP
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            Domain: vpc
+
+    # NAT Gateways for our public subnets so the EC2 machines in the private subnets can communicate
+    NATGateway1:
+        Type: AWS::EC2::NatGateway
+        Properties:
+            AllocationId: !GetAtt NATGateway1EIP.AllocationId
+            SubnetId: !Ref PublicSubnet1
+
+    NATGateway2:
+        Type: AWS::EC2::NatGateway
+        Properties:
+            AllocationId: !GetAtt NATGateway2EIP.AllocationId
+            SubnetId: !Ref PublicSubnet2
+
+    # Establish subnets. Public subnets 1 and will host NAT gateways 1 and 2, whereas the private subnets 1 and 2 will
+    # host EC2 Instances 1A, 1B, 2A, and 2B respectively. Both pairs of private and public subnets will exist in
+    # different availability zones
+    PrivateSubnet1:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref UdacityProjectVPC
+            AvailabilityZone: !Select [0, !GetAZs '']
+            CidrBlock: !Ref PrivateSubnet1CIDR
+            MapPublicIpOnLaunch: false
+            Tags:
+            -   Key: Name
+                Value: !Sub ${EnvironmentName} Private Subnet (AZ1)
+
+    PrivateSubnet2:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref UdacityProjectVPC
+            AvailabilityZone: !Select [1, !GetAZs '']
+            CidrBlock: !Ref PrivateSubnet2CIDR
+            MapPublicIpOnLaunch: false
+            Tags:
+            -   Key: Name
+                Value: !Sub ${EnvironmentName} Private Subnet (AZ2)
+
+    PublicSubnet1:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref UdacityProjectVPC
+            AvailabilityZone: !Select [0, !GetAZs '']
+            CidrBlock: !Ref PublicSubnet1CIDR
+            MapPublicIpOnLaunch: true
+            Tags:
+            -   Key: Name
+                Value: !Sub ${EnvironmentName} Public Subnet (AZ1)
+
+    PublicSubnet2:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref UdacityProjectVPC
+            AvailabilityZone: !Select [1, !GetAZs '']
+            CidrBlock: !Ref PublicSubnet2CIDR
+            MapPublicIpOnLaunch: true
+            Tags:
+            -   Key: Name
+                Value: !Sub ${EnvironmentName} Public Subnet (AZ2)
+
+
+    # Establish the routing tables so the VPC
+    PublicRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref UdacityProjectVPC
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Public Routes
+
+    # Routing rules begin. This is the default rule
+    DefaultPublicRoute:
+        Type: AWS::EC2::Route
+        DependsOn: InternetGatewayAttachment # We need the internet for traffic
+        Properties:
+            RouteTableId: !Ref PublicRouteTable # Attach rule here
+            DestinationCidrBlock: 0.0.0.0/0  # If traffic comes from this Ip range (in this case, a wildcard)...
+            GatewayId: !Ref InternetGateway # ... route the traffic here
+
+    # Specify which subnet the rules of the VPC routing table applies to
+    PublicSubnet1RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            SubnetId: !Ref PublicSubnet1
+
+    # Ditto
+    PublicSubnet2RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            SubnetId: !Ref PublicSubnet2
+
+    # Establishing private route table per each private subnet
+    PrivateRouteTable1:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref UdacityProjectVPC
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Private Routes (AZ1)
+
+    # Almost the same as public default route, but traffic gets routed to the NAT instead of the internet gateway
+    # It's private, therefore we don't want to route traffic publicly.
+    DefaultPrivateRoute1:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable1
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref NATGateway1
+
+    PrivateSubnet1RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable1
+            SubnetId: !Ref PrivateSubnet1
+
+    PrivateRouteTable2:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref UdacityProjectVPC
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Private Routes (AZ2)
+
+    DefaultPrivateRoute2:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable2
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref NATGateway2
+
+    PrivateSubnet2RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable2
+            SubnetId: !Ref PrivateSubnet2
+
+    # Security group for the Elastic Load Balancer
+    UdagramELBSG:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Allow HTTP traffic inbound from the internet, outbound to the private subnnets
+            VpcId: !Ref UdacityProjectVPC
+            SecurityGroupIngress:
+            -   IpProtocol: tcp
+                FromPort: 80
+                ToPort: 80
+                CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+            -   IpProtocol: tcp
+                FromPort: 80
+                ToPort: 80
+                CidrIp: 0.0.0.0/0
+
+    # Add a Load balancer in the VPC for the public subnets (and thus the private ones)
+    # We will need three things: an ARN target group, a load balancer, and a listener
+    #
+    # Declare the load balancer to work with the public subnets
+    WebAppLoadBalancer:
+        Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+        Properties:
+            Subnets:
+            - !Ref PublicSubnet1
+            - !Ref PublicSubnet2
+            SecurityGroups:
+            - !Ref UdagramELBSG
+
+    # Create the ARN role / target group that will perform application health checks
+    # If unhealthy, will scale the resources to handle the new traffic
+    WebAppTargetGroup:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            HealthCheckIntervalSeconds: 10
+            HealthCheckPath: /
+            HealthCheckProtocol: HTTP
+            HealthCheckTimeoutSeconds: 8
+            HealthyThresholdCount: 2
+            Port: 80  # Same port as Web server security group
+            Protocol: HTTP  # Ping for a HTTP 200 response (means its healthy)
+            UnhealthyThresholdCount: 5  # 5 unsuccessful health checks means scale up
+            VpcId:
+                Fn::ImportValue: !Sub "${EnvironmentName}-VPCID"
+
+    # Create the Load balancer listener for HTTP traffic and forward the traffic to the target group
+    LBListener:
+        Type: AWS::ElasticLoadBalancingV2::Listener
+        Properties:
+            DefaultActions:
+            -   Type: forward
+                TargetGroupArn: !Ref WebAppTargetGroup
+            LoadBalancerArn: !Ref WebAppLoadBalancer
+            Port: 80
+            Protocol: HTTP
+
+    # Rule for Load balancer to forward traffic to SOME SERVER within the target group
+    # The Listener just forwards the traffic. The rule dictates which server will handle the traffic
+    ApplicationLBListenerRule:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties:
+            Actions:
+            -   Type: forward
+                TargetGroupArn: !Ref WebAppTargetGroup
+            Conditions:
+            -   Field: path-pattern
+                Values: [/]
+            ListenerArn: !Ref LBListener
+            Priority: 1
+
+
+Outputs:
+
+    VPC:
+        Description: References UdacityVPC
+        Value: !Ref UdacityProjectVPC
+        Export:
+            Name: !Sub ${EnvironmentName}-VPCID
+
+    VPCPublicRouteTable:
+        Description: Public routing table
+        Value: !Ref PublicRouteTable
+        Export:
+            Name: !Sub ${EnvironmentName}-PUB-RT
+
+    VPCPrivateRouteTable1:
+        Description: Private routing table for subnet in AZ1
+        Value: !Ref PrivateRouteTable1
+        Export:
+            Name: !Sub ${EnvironmentName}-PRIV1-RT
+
+    VPCPrivateRouteTable2:
+        Description: Private routing table for subnet in AZ2
+        Value: !Ref PrivateRouteTable2
+        Export:
+            Name: !Sub ${EnvironmentName}-PRIV2-RT
+
+    PublicSubnets:
+        Description: A list of public subnets
+        Value: !Join [",", [!Ref PublicSubnet1, !Ref PublicSubnet2]]
+        Export:
+            Name: !Sub ${EnvironmentName}-PUB-NETS
+
+    PrivateSubnets:
+        Description: A list of private subnets
+        Value: !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
+        Export:
+            Name: !Sub ${EnvironmentName}-PRIV-NETS

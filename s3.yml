@@ -1,0 +1,60 @@
+Description:
+    Alex Despotakis
+    Cloud DevOps Engineering Part 2 Project
+
+    This template seeks to replicate the schematics described in aws_diagram.png
+    All of the resources are listed in alphabetical order by type and by name
+
+
+Parameters:
+
+    EnvironmentName:
+        Description: An environment name that will be prefixed to a resource
+        Type: String
+
+    VpcCIDR:
+        Description: Enter the IP range in CIDR notation for the VPC
+        Type: String
+        Default: 10.0.0.0/16
+
+    PublicSubnet1CIDR:
+        Description: IP range in CIDR notation for public subnet in VPC
+        Type: String
+        Default: 10.0.0.0/24
+
+    PublicSubnet2CIDR:
+        Description: IP range in CIDR notation for public subnet in VPC
+        Type: String
+        Default: 10.0.1.0/24
+
+    PrivateSubnet1CIDR:
+        Description: IP range in CIDR notation for private subnet in VPC
+        Type: String
+        Default: 10.0.2.0/24
+
+    PrivateSubnet2CIDR:
+        Description: IP range in CIDR notation for private subnet in VPC
+        Type: String
+        Default: 10.0.3.0/24
+
+Resources:
+
+
+    S3Bucket:
+        Type: AWS::S3::Bucket
+        Properties:
+            BucketName: UdagramDespotakis
+
+    S3BucketPolicy:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+            Bucket: !Ref S3Bucket
+            PolicyDocument:
+              Statement:
+                  - Action:
+                    - s3.GetObject
+                    Effect: Allow
+                    Principal:
+                        Service:
+                            - ec2.amazonaws.com
+                    Resource: !Join ["", ["arn:aws:s3:::", !Ref S3Bucket, "/*"]]

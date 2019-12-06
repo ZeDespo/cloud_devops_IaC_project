@@ -1,0 +1,181 @@
+Description:
+    Alex Despotakis
+    Cloud DevOps Engineering Part 2 Project
+
+    This template seeks to replicate the schematics described in aws_diagram.png
+    All of the resources are listed in alphabetical order by type and by name
+
+Parameters:
+
+    EnvironmentName:
+        Description: An environment name that will be prefixed to a resource
+        Type: String
+
+    VpcCIDR:
+        Description: Enter the IP range in CIDR notation for the VPC
+        Type: String
+        Default: 10.0.0.0/16
+
+    PublicSubnet1CIDR:
+        Description: IP range in CIDR notation for public subnet in VPC
+        Type: String
+        Default: 10.0.0.0/24
+
+    PublicSubnet2CIDR:
+        Description: IP range in CIDR notation for public subnet in VPC
+        Type: String
+        Default: 10.0.1.0/24
+
+    PrivateSubnet1CIDR:
+        Description: IP range in CIDR notation for private subnet in VPC
+        Type: String
+        Default: 10.0.2.0/24
+
+    PrivateSubnet2CIDR:
+        Description: IP range in CIDR notation for private subnet in VPC
+        Type: String
+        Default: 10.0.3.0/24
+
+
+Resources:
+
+    # Configure the autoscaling groups
+    # In case the server gets overloaded, we're giving AWS instructions on what to do to help the other server in need
+    WebAppGroup:
+        Type: AWS::AutoScaling::AutoScalingGroup
+        Properties:
+            VPCZoneIdentifier:
+            -   Fn::ImportValue:
+                    Fn::Sub:
+                        ${EnvironmentName}-PRIV-NETS
+            LaunchConfigurationName: !Ref WebAppLaunchConfig
+            MinSize: '2'
+            MaxSize: '4'
+#            TargetGroupARNs:
+#                - !Ref EC2WebServer1
+#                - !Ref EC2WebServer2
+
+    # Necessary launch configuration for autoscaling group
+    WebAppLaunchConfig:
+        Type: AWS::AutoScaling::LaunchConfiguration
+        Properties:
+            ImageId: ami-06d51e91cea0dac8d  # Ubuntu server
+            IamInstanceProfile: !Ref ProfileWithRolesForOurApp
+            SecurityGroups:
+            -   !Ref UdagramEC2SG
+            InstanceType: t3.medium
+            BlockDeviceMappings:
+            -   DeviceName: "/dev/sdk"
+                Ebs:
+                    VolumeSize: '10'
+            UserData:
+                Fn::Base64: !Sub |
+                    #!/bin/bash
+                    apt-get update -y
+                    apt-get install unzip awscli -y
+                    apt-get install apache2 -y
+                    systemctl start apache2.service
+                    cd /var/www/html
+                    aws s3 cp s3://udacity-demo-1/udacity.zip .
+                    unzip -o udacity.zip
+
+#    # Initialize all of the EC2 instances for each private subnet (2 for each one)
+#    EC2WebServer1:
+#        Type: AWS::EC2::Instance
+#        Properties:
+#            BlockDeviceMappings:
+#            -   DeviceName: "/dev/sdk"
+#                Ebs:
+#                    VolumeSize: '10'
+#            InstanceType: t2.medium  # 2 vCPU, 4 gigs of RAM
+#            ImageId: ami-06d51e91cea0dac8d # Ubuntu server 18
+#            SecurityGroups:
+#            - !Ref UdagramEC2SG
+#            SubnetId: !Select [0, !Split [",", !ImportValue "UdacityProject-PRIV-NETS"]]
+
+#    EC2WebServer1B:
+#        Type: AWS::EC2::Instance
+#        Properties:
+#            BlockDeviceMappings:
+#            -   DeviceName: "/dev/sdk"
+#                Ebs:
+#                    VolumeSize: '10'
+#            InstanceType: t2.medium
+#            ImageId: ami-06d51e91cea0dac8d
+#            SecurityGroups:
+#            - !Ref UdagramEC2SG
+#            SubnetId: !Select [0, !Split [",", !ImportValue "UdacityProject-PRIV-NETS"]]
+
+#    EC2WebServer2:
+#        Type: AWS::EC2::Instance
+#        Properties:
+#            BlockDeviceMappings:
+#            -   DeviceName: "/dev/sdk"
+#                Ebs:
+#                    VolumeSize: '10'
+#            InstanceType: t2.medium
+#            ImageId: ami-06d51e91cea0dac8d
+#            SecurityGroups:
+#            - !Ref UdagramEC2SG
+#            SubnetId: !Select [1, !Split [",", !ImportValue "UdacityProject-PRIV-NETS"]]
+
+#    EC2WebServer2B:
+#        Type: AWS::EC2::Instance
+#        Properties:
+#            BlockDeviceMappings:
+#            -   DeviceName: "/dev/sdk"
+#                Ebs:
+#                    VolumeSize: '10'
+#            InstanceType: t2.medium
+#            ImageId: ami-06d51e91cea0dac8d
+#            SecurityGroups:
+#            - !Ref UdagramEC2SG
+#            SubnetId: !!Select [1, !Split [",", !ImportValue "UdacityProject-PRIV-NETS"]]
+
+    # Security group for the EC2 web servers
+    UdagramEC2SG:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Allow inbound HTTP traffic, outbound all traffic for updates
+            VpcId:
+                Fn::ImportValue:
+                    Fn::Sub: "${EnvironmentName}-VPCID"
+            SecurityGroupIngress:
+            -   IpProtocol: tcp
+                FromPort: 80
+                ToPort: 80
+                CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+            -   IpProtocol: -1
+                FromPort: -1
+                ToPort: -1
+                CidrIp: 0.0.0.0/0
+
+    S3ReadOnlyEC2Role:
+        Type: AWS::IAM::Role
+        Properties:
+            RoleName: S3ReadOnlyAccessEC2
+            AssumeRolePolicyDocument:
+                Statement:
+                -   Action:
+                    - sts:AssumeRole
+                        Effect: Allow
+                    Principal:
+                        Service:
+                        - ec2.amazonaws.com
+
+    #instace profile contains the IAM Role name(s) that we want to associate to our auto scaling EC2 Servers
+    ProfileWithRolesForOurApp:
+        Type: AWS::IAM::InstanceProfile
+        Properties:
+            Roles:
+            - UdagramS3ReadOnlyEC2
+
+
+#Outputs:
+#
+#    EC2WebServers:
+#        Description: A list of the EC2 instances that host Udagram's web application
+#        Value: !Join [",", [!Ref EC2WebServer1, !Ref EC2WebServer2]]
+#        Export:
+#            Name: !Sub ${EnvironmentName}-EC2Instances
