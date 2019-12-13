@@ -150,7 +150,11 @@ def _read_local_template(cf: boto3.client, template_path: str) -> str:
     return template
 
 
-def main():
+def main() -> None:
+    """
+    Deploy all stacks in the configuration file.
+    :return: Nothing
+    """
     key, secret, region = load_aws_creds()
     cf = boto3.client('cloudformation', aws_access_key_id=key, aws_secret_access_key=secret, region_name=region)
     stack_tracker = StackTracker()

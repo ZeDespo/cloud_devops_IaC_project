@@ -1,6 +1,5 @@
 import configparser
 from typing import Optional, Dict, Any, List
-
 import boto3
 import asyncio
 import logging
@@ -118,7 +117,7 @@ def read_config_file(path: str) -> List[Dict[str, Any]]:
 def main() -> None:
     """
     Remove all stacks that have to do with the corresponding configuration file.
-    :return:
+    :return: None
     """
     key, secret, region = load_aws_creds()
     cf = boto3.client('cloudformation', aws_access_key_id=key, aws_secret_access_key=secret, region_name=region)
