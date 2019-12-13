@@ -1,4 +1,5 @@
-from typing import Optional, Dict, Any
+import configparser
+from typing import Optional, Dict, Any, List
 
 import boto3
 import asyncio
@@ -6,10 +7,14 @@ import logging
 import os
 
 
-class Counter:
+class StackTracker:
 
-    def __init__(self, size: int):
-        self.counter = size
+    def __init__(self, values: Optional[set]=None):
+        """
+        Sole purpose is to keep track of stacks so asynchronous tasks have a shared resource to pull
+        from.
+        """
+        self.stacks = set() if not values else values
 
 
 def check_stack(cf: boto3.client, stack_name: str) -> (Dict[str, Any], bool):
@@ -41,20 +46,20 @@ def create_logger(debug_mode: Optional[bool]=False) -> logging.getLogger:
     return logger
 
 
-async def delete_stack(cf: boto3.client, stack_name: str, counter: Counter) -> None:
+async def delete_stack(cf: boto3.client, st: StackTracker, stack_name: str, depends_on: List[str]) -> None:
     """
 
     :param cf:
+    :param st: Keeps track of all completed stacks so dependent stacks encounter no errors upon creation.
     :param stack_name:
-    :param counter: A shared resource between coroutines which trigger the root stack's deletion.
     :return:
     """
     exists = True
     while exists:
-        if stack_name == root_stack:
-            if counter.counter != 0:
-                await asyncio.sleep(5)
-                continue
+        if stack_name in st.stacks:
+            logger.debug("Stack {} cannot be deleted. Awaiting child stack deletion.".format(stack_name))
+            await asyncio.sleep(5)
+            continue
         response, exists = check_stack(cf, stack_name)
         if exists:
             if response['Stacks'][0]['StackStatus'] != 'DELETE_IN_PROGRESS':
@@ -63,7 +68,8 @@ async def delete_stack(cf: boto3.client, stack_name: str, counter: Counter) -> N
             else:
                 await asyncio.sleep(5)
         else:
-            counter.counter -= 1
+            for dep in depends_on:
+                st.stacks.remove(dep)
             logger.info("Finished deleting {}".format(stack_name))
 
 
@@ -78,23 +84,51 @@ def load_aws_creds() -> (str, str, str):
     return credentials.access_key, credentials.secret_key, session.region_name
 
 
+def read_config_file(path: str) -> List[Dict[str, Any]]:
+    """
+    Read from some INI file.
+    :param path: The ini file path
+    :return: The parsed config file.
+    """
+    c = configparser.ConfigParser(allow_no_value=True)
+    with open(path, "r") as f:
+        c.read_file(f)
+    config = []
+    for section in c.sections():
+        depends_on = c.get(section, 'depends_on')
+        stack_name = c.get(section, 'name')
+        template_path = c.get(section, 'template_path')
+        params_path = c.get(section, 'params_path')
+        capabilities = c.get(section, 'capabilities')
+        config.append(
+            {
+                'stack_name': stack_name,
+                'template_path': template_path,
+                'params_path': None if not params_path else params_path,
+                'capabilities': [] if not capabilities else capabilities.split(','),
+                'depends_on': [] if not depends_on else depends_on.split(',')
+            }
+        )
+    return config
+
+
 def main():
     """
 
     :return:
     """
-    counter = Counter(len(nested_stacks))
     key, secret, region = load_aws_creds()
     cf = boto3.client('cloudformation', aws_access_key_id=key, aws_secret_access_key=secret, region_name=region)
+    config = read_config_file('stack_config.ini')
+    dependencies = set()
+    [[dependencies.add(dep) for dep in c['depends_on']] for c in config]
+    stack_tracker = StackTracker(dependencies)
     loop = asyncio.get_event_loop()
-    tasks = [delete_stack(cf, nest_name, counter) for nest_name in nested_stacks]
-    tasks.append(delete_stack(cf, root_stack, counter))
+    tasks = [delete_stack(cf, stack_tracker, c['stack_name'], c['depends_on']) for c in config]
     wait_tasks = asyncio.gather(*tasks)
     loop.run_until_complete(wait_tasks)
 
 
 if __name__ == '__main__':
-    root_stack = 'udagramNetworking'
-    nested_stacks = ['udagramIAM', 'udagramEC2', 'udagramS3']
     logger = create_logger()
     main()

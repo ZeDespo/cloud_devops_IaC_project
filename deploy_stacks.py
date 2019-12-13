@@ -1,10 +1,20 @@
 from typing import Optional, List, Dict, Any
 import configparser
 import boto3
-import time
 import logging
 import os
 import json
+import asyncio
+
+
+class StackTracker:
+
+    def __init__(self, values: Optional[set]=None):
+        """
+        Sole purpose is to keep track of stacks so asynchronous tasks have a shared resource to pull
+        from.
+        """
+        self.stacks = set() if not values else values
 
 
 def create_logger(debug_mode: Optional[bool]=False) -> logging.getLogger:
@@ -22,33 +32,46 @@ def create_logger(debug_mode: Optional[bool]=False) -> logging.getLogger:
     return logger
 
 
-def create_stack(cf: boto3.client, wait_for_creation: bool, stack_name: str, template_path: str,
-                 params_path: str or None, capabilities: List[str]) -> None:
+async def create_stack(cf: boto3.client, st: StackTracker, stack_name: str, template_path: str,
+                 params_path: str or None, capabilities: List[str], depends_on: List[str]) -> None:
     """
     Create the stack for cloudformation
     :param cf: The cloudformation client from boto3
-    :param wait_for_creation: Whether we wait for the stack to be created before moving on with the program or not.
+    :param st: Keeps track of all completed stacks so dependent stacks encounter no errors upon creation.
     :param stack_name: The name to give the stack
     :param template_path: The path to the template (local file system only)
     :param params_path: The path to the parameters file (local file system only)
     :param capabilities: Special permissions to assign each stack
+    :param depends_on: The stacks that need to be created before this stack is created.
     :return: Nothing
     """
-    exists = False
+    exists, proceed_creation = False, False if depends_on else True
     while not exists:
+        if not proceed_creation:  # if there are dependencies, don't proceed until "parent" stacks created
+            terminate_loop = True
+            for dep in depends_on:
+                if dep not in st.stacks:
+                    logger.debug("Stack {} cannot be created since stack {} does not exist.".format(stack_name, dep))
+                    terminate_loop = False
+                    await asyncio.sleep(5)
+                    break
+            if not terminate_loop:
+                continue
+            else:
+                proceed_creation = True
         response, created = check_stack(cf, stack_name)
         if created:
-            if response['Stacks'][0]['StackStatus'] == 'CREATE_COMPLETE':
+            stack_status = response['Stacks'][0]['StackStatus']
+            if stack_status == 'CREATE_COMPLETE':
                 exists = True
-            elif response['Stacks'][0]['StackStatus'] == 'CREATE_IN_PROGRESS':
-                if wait_for_creation:
-                    time.sleep(5)
-                else:
-                    break
+                st.stacks.add(stack_name)
+                logger.info("Stack {} created.".format(stack_name))
+            elif stack_status == 'CREATE_IN_PROGRESS':
+                await asyncio.sleep(5)
             else:
                 raise ValueError(response['Stacks'][0]['StackStatus'])
         else:
-            logger.info("Creating stack.")
+            logger.info("Creating stack {}.".format(stack_name))
             template = _read_local_template(cf, template_path)
             if params_path:
                 with open(params_path) as f:
@@ -56,7 +79,7 @@ def create_stack(cf: boto3.client, wait_for_creation: bool, stack_name: str, tem
             else:
                 params = None
             cf.create_stack(StackName=stack_name, TemplateBody=template, Parameters=params, Capabilities=capabilities)
-            logger.debug("Waiting for Cloudformation to finalize creation...")
+            logger.debug("Waiting for Cloudformation to finalize creation of {}...".format(stack_name))
 
 
 def check_stack(cf: boto3.client, stack_name: str) -> (Dict[str, Any], bool):
@@ -70,35 +93,34 @@ def check_stack(cf: boto3.client, stack_name: str) -> (Dict[str, Any], bool):
         response = cf.describe_stacks(StackName=stack_name)
     except cf.exceptions.ClientError:
         return {}, False
+    if response['Stacks'][0]['StackStatus'] == 'DELETE_IN_PROGRESS':
+        return {}, False
     return response, True
 
 
-def read_config_file(path: str) -> Dict[str, List[Dict[str, Any]]]:
+def read_config_file(path: str) -> List[Dict[str, Any]]:
     """
     Read from some INI file.
     :param path: The ini file path
     :return: The parsed config file.
-    StackName=stack_name, TemplateBody=template, Parameters=params, Capabilities=capabilities
     """
     c = configparser.ConfigParser(allow_no_value=True)
     with open(path, "r") as f:
         c.read_file(f)
-    config = {'root': [], 'nested': []}
+    config = []
     for section in c.sections():
-        if section == 'root_stack':
-            c_ptr = config['root']
-        else:
-            c_ptr = config['nested']
+        depends_on = c.get(section, 'depends_on')
         stack_name = c.get(section, 'name')
         template_path = c.get(section, 'template_path')
         params_path = c.get(section, 'params_path')
         capabilities = c.get(section, 'capabilities')
-        c_ptr.append(
+        config.append(
             {
                 'stack_name': stack_name,
                 'template_path': template_path,
                 'params_path': None if not params_path else params_path,
-                'capabilities': [] if not capabilities else capabilities.split(',')
+                'capabilities': [] if not capabilities else capabilities.split(','),
+                'depends_on': [] if not depends_on else depends_on.split(',')
             }
         )
     return config
@@ -131,18 +153,14 @@ def _read_local_template(cf: boto3.client, template_path: str) -> str:
 def main():
     key, secret, region = load_aws_creds()
     cf = boto3.client('cloudformation', aws_access_key_id=key, aws_secret_access_key=secret, region_name=region)
+    stack_tracker = StackTracker()
     config = read_config_file('stack_config.ini')
-    root = config['root'][0]
-    logger.info("Checking for root stack's existence.")
-    create_stack(cf, wait_for_creation=True, **root)
-    logger.info("Root stack verified.")
-    nested_stacks = config['nested']
-    for nest in nested_stacks:
-        logger.info("Creating {} stack".format(nest['stack_name']))
-        create_stack(cf, wait_for_creation=False, **nest)
-        logger.info("Finished creating {}".format(nest['stack_name']))
+    loop = asyncio.get_event_loop()
+    tasks = [create_stack(cf, stack_tracker, **c) for c in config]
+    wait_tasks = asyncio.gather(*tasks)
+    loop.run_until_complete(wait_tasks)
 
 
 if __name__ == '__main__':
-    logger = create_logger(False)
+    logger = create_logger()
     main()
