@@ -36,6 +36,17 @@ Parameters:
         Type: String
         Default: 10.0.3.0/24
 
+    WebServerSSHKey:
+        Description: The name of the SSH key pair for the EC2 web servers
+        Type: String
+
+    BastionServerSSHKey:
+        Description: The name of the SSH key pair for the Bastion server
+        Type: String
+
+    SourceIp:
+        Description: For the Bastion server, what IP we are cleared to SSH from.
+        Type: String
 
 Resources:
 
@@ -327,3 +338,9 @@ Outputs:
         Value: !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
         Export:
             Name: !Sub ${EnvironmentName}-PRIV-NETS
+
+    LoadBalancerDnsHostname:
+        Description: The load balancer's DNS hostname
+        Value: !Sub http://${WebAppLoadBalancer.DNSName}
+        Export:
+            Name: !Sub ${EnvironmentName}-LoadBalancer-DNSName

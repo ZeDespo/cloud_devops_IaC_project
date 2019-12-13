@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any, List
 import boto3
 import asyncio
 import logging
+import shutil
 import os
 
 
@@ -43,6 +44,15 @@ def create_logger(debug_mode: Optional[bool]=False) -> logging.getLogger:
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)
     return logger
+
+
+def delete_keys(ec2: boto3.client, key_name) -> None:
+    """
+
+    :param ec2:
+    :param key_name:
+    :return:
+    """
 
 
 async def delete_stack(cf: boto3.client, st: StackTracker, stack_name: str, depends_on: List[str]) -> None:
@@ -120,6 +130,16 @@ def main() -> None:
     :return: None
     """
     key, secret, region = load_aws_creds()
+    ec2 = boto3.client('ec2', aws_access_key_id=key, aws_secret_access_key=secret, region_name=region)
+    try:
+        ec2.delete_key_pair(KeyName=web_server_key)
+    except ec2.exceptions.ClientError:  # There is already a key for this name
+        pass
+    try:
+        ec2.delete_key_pair(KeyName=bastion_server_key)
+    except ec2.exceptions.ClientError:  # There is already a key for this name
+        pass
+    shutil.rmtree('ssh_keys')
     cf = boto3.client('cloudformation', aws_access_key_id=key, aws_secret_access_key=secret, region_name=region)
     config = read_config_file('stack_config.ini')
     dependencies = {}
@@ -137,5 +157,7 @@ def main() -> None:
 
 
 if __name__ == '__main__':
+    web_server_key = 'UdagramWebServers'
+    bastion_server_key = 'BastionServer'
     logger = create_logger()
     main()

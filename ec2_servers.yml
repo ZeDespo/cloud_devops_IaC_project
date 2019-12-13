@@ -36,6 +36,18 @@ Parameters:
         Type: String
         Default: 10.0.3.0/24
 
+    WebServerSSHKey:
+        Description: The name of the SSH key pair for the EC2 web servers
+        Type: String
+
+    BastionServerSSHKey:
+        Description: The name of the SSH key pair for the Bastion server
+        Type: String
+
+    SourceIp:
+        Description: For the Bastion server, what IP we are cleared to SSH from.
+        Type: String
+
 
 Resources:
 
@@ -62,6 +74,7 @@ Resources:
             SecurityGroups:
             -   !Ref UdagramEC2SG
             InstanceType: t3.medium
+            KeyName: !Ref WebServerSSHKey
             BlockDeviceMappings:
             -   DeviceName: "/dev/sdk"
                 Ebs:
@@ -77,19 +90,71 @@ Resources:
                     aws s3 cp s3://udacity-demo-1/udacity.zip .
                     unzip -o udacity.zip
 
+    # Create bastion servers to SSH into the private subnets in each availability zone.
+    BastionServer1:
+        Type: AWS::EC2::Instance
+        Properties:
+            BlockDeviceMappings:
+            -   DeviceName: "/dev/sdk"
+                Ebs:
+                    VolumeSize: '10'
+            InstanceType: t2.micro
+            ImageId: ami-06d51e91cea0dac8d
+            KeyName: !Ref BastionServerSSHKey
+            SecurityGroupIds:
+            - !GetAtt UdagramBastionSG.GroupId
+            SubnetId: !Select [0, !Split [",", !ImportValue "UdagramProject-PUB-NETS"]]
+
+    BastionServer2:
+        Type: AWS::EC2::Instance
+        Properties:
+            BlockDeviceMappings:
+            -   DeviceName: "/dev/sdk"
+                Ebs:
+                    VolumeSize: '10'
+            InstanceType: t2.micro
+            ImageId: ami-06d51e91cea0dac8d
+            KeyName: !Ref BastionServerSSHKey
+            SecurityGroupIds:
+            - !GetAtt UdagramBastionSG.GroupId
+            SubnetId: !Select [1, !Split [",", !ImportValue "UdagramProject-PUB-NETS"]]
+
     # Security group for the EC2 web servers
     UdagramEC2SG:
         Type: AWS::EC2::SecurityGroup
         Properties:
-            GroupDescription: Allow inbound HTTP traffic, outbound all traffic for updates
+            GroupDescription: Allow inbound HTTP traffic and SSH from bastion server, outbound all traffic for updates
             VpcId:
                 Fn::ImportValue:
                     Fn::Sub: "${EnvironmentName}-VPCID"
             SecurityGroupIngress:
             -   IpProtocol: tcp
+                FromPort: 22
+                ToPort: 22
+                SourceSecurityGroupId: !GetAtt UdagramBastionSG.GroupId
+            -   IpProtocol: tcp
                 FromPort: 80
                 ToPort: 80
                 CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+            -   IpProtocol: -1
+                FromPort: -1
+                ToPort: -1
+                CidrIp: 0.0.0.0/0
+
+    # Security group for bastion server
+    UdagramBastionSG:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Allow SSH connections to debug EC2 instances in private subnets
+            VpcId:
+                Fn::ImportValue:
+                    Fn::Sub: "${EnvironmentName}-VPCID"
+            SecurityGroupIngress:
+            -   IpProtocol: tcp
+                FromPort: 22
+                ToPort: 22
+                CidrIp: !Ref SourceIp
             SecurityGroupEgress:
             -   IpProtocol: -1
                 FromPort: -1
@@ -110,3 +175,9 @@ Outputs:
         Value: !Ref UdagramEC2SG
         Export:
             Name: !Sub ${EnvironmentName}-EC2-SecurityGroup
+
+    BastionServersDNS:
+        Description: The Bastion Server's DNS hostname.
+        Value: !Join [",", [!GetAtt BastionServer1.PublicDnsName, !GetAtt BastionServer2.PublicDnsName]]
+        Export:
+            Name: !Sub ${EnvironmentName}-Bastion-Dns

@@ -17,6 +17,26 @@ class StackTracker:
         self.stacks = set() if not values else values
 
 
+def create_ssh_key_pairs(ec2: boto3.client, key_name: str) -> None:
+    """
+
+    :param ec2:
+    :param key_name:
+    :return:
+    """
+    ssh_root = "ssh_keys"
+    try:
+        response = ec2.create_key_pair(KeyName=key_name)
+        if not os.path.isdir(ssh_root):
+            os.makedirs(ssh_root)
+        filepath, content = os.path.join(ssh_root, "{}.pem".format(response['KeyName'])), response['KeyMaterial']
+        with open(filepath, 'w+') as f:
+            f.write(content)
+        logger.debug("Wrote content to {}".format(filepath))
+    except ec2.exceptions.ClientError:  # There is already a key for this name
+        logger.debug("{} exists.".format(key_name))
+
+
 def create_logger(debug_mode: Optional[bool] = False) -> logging.getLogger:
     """
     Self-explanatory, create a logger for streaming output
@@ -98,11 +118,23 @@ def check_stack(cf: boto3.client, stack_name: str) -> (Dict[str, Any], bool):
     return response, True
 
 
-def read_config_file(path: str) -> List[Dict[str, Any]]:
+def load_aws_creds() -> (str, str, str):
     """
-    Read from some INI file.
+    Load AWS credentials from file
+    path: file path to the credential file
+    :return: AWS access key and AWS secret key
+    """
+    session = boto3.Session()
+    credentials = session.get_credentials()
+    return credentials.access_key, credentials.secret_key, session.region_name
+
+
+def parse_config_file(path: str, **kwargs) -> List[Dict[str, Any]]:
+    """
+    Read from some INI file and perform some preliminary operations based on section, if needed.
     :param path: The ini file path
-    :return: The parsed config file.
+    :param kwargs: Holds the authentication information for AWS
+    :return: The information necessary to create a cloudformation stack
     """
     c = configparser.ConfigParser(allow_no_value=True)
     with open(path, "r") as f:
@@ -114,6 +146,15 @@ def read_config_file(path: str) -> List[Dict[str, Any]]:
         template_path = c.get(section, 'template_path')
         params_path = c.get(section, 'params_path')
         capabilities = c.get(section, 'capabilities')
+        if section == 'ec2':
+            keys = c.get(section, 'keys')
+            keys = [] if not keys else keys.split(',')
+            if keys:
+                logger.debug("Creating SSH keys for EC2 instances.")
+                ec2 = boto3.client('ec2', **kwargs)
+                for key in keys:
+                    create_ssh_key_pairs(ec2, key)
+                logger.debug("Finished creating keys.")
         config.append(
             {
                 'stack_name': stack_name,
@@ -124,17 +165,6 @@ def read_config_file(path: str) -> List[Dict[str, Any]]:
             }
         )
     return config
-
-
-def load_aws_creds() -> (str, str, str):
-    """
-    Load AWS credentials from file
-    path: file path to the credential file
-    :return: AWS access key and AWS secret key
-    """
-    session = boto3.Session()
-    credentials = session.get_credentials()
-    return credentials.access_key, credentials.secret_key, session.region_name
 
 
 def _read_local_template(cf: boto3.client, template_path: str) -> str:
@@ -156,9 +186,10 @@ def main() -> None:
     :return: Nothing
     """
     key, secret, region = load_aws_creds()
-    cf = boto3.client('cloudformation', aws_access_key_id=key, aws_secret_access_key=secret, region_name=region)
+    aws_auth = {'aws_access_key_id': key, 'aws_secret_access_key': secret, 'region_name': region}
+    cf = boto3.client('cloudformation', **aws_auth)
     stack_tracker = StackTracker()
-    config = read_config_file('stack_config.ini')
+    config = parse_config_file('stack_config.ini', **aws_auth)
     loop = asyncio.get_event_loop()
     tasks = [create_stack(cf, stack_tracker, **c) for c in config]
     wait_tasks = asyncio.gather(*tasks)
