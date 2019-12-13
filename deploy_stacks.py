@@ -9,7 +9,7 @@ import asyncio
 
 class StackTracker:
 
-    def __init__(self, values: Optional[set]=None):
+    def __init__(self, values: Optional[set] = None):
         """
         Sole purpose is to keep track of stacks so asynchronous tasks have a shared resource to pull
         from.
@@ -17,7 +17,7 @@ class StackTracker:
         self.stacks = set() if not values else values
 
 
-def create_logger(debug_mode: Optional[bool]=False) -> logging.getLogger:
+def create_logger(debug_mode: Optional[bool] = False) -> logging.getLogger:
     """
     Self-explanatory, create a logger for streaming output
     :param debug_mode: Is the developer debugging this or no?
@@ -33,7 +33,7 @@ def create_logger(debug_mode: Optional[bool]=False) -> logging.getLogger:
 
 
 async def create_stack(cf: boto3.client, st: StackTracker, stack_name: str, template_path: str,
-                 params_path: str or None, capabilities: List[str], depends_on: List[str]) -> None:
+                       params_path: str or None, capabilities: List[str], depends_on: List[str]) -> None:
     """
     Create the stack for cloudformation
     :param cf: The cloudformation client from boto3

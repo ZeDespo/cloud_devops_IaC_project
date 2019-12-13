@@ -105,7 +105,7 @@ Outputs:
         Export:
             Name: !Sub ${EnvironmentName}-EC2-AutoScalingGroup
 
-    WebServer-SG:
+    WebServerSG:
         Description: The webservers' security group
         Value: !Ref UdagramEC2SG
         Export:
