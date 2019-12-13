@@ -69,7 +69,7 @@ async def create_stack(cf: boto3.client, st: StackTracker, stack_name: str, temp
             elif stack_status == 'CREATE_IN_PROGRESS':
                 await asyncio.sleep(5)
             else:
-                raise ValueError(response['Stacks'][0]['StackStatus'])
+                raise ValueError(stack_status)
         else:
             logger.info("Creating stack {}.".format(stack_name))
             template = _read_local_template(cf, template_path)
