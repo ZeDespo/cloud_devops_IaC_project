@@ -262,8 +262,7 @@ Resources:
             Port: 80  # Same port as Web server security group
             Protocol: HTTP  # Ping for a HTTP 200 response (means its healthy)
             UnhealthyThresholdCount: 5  # 5 unsuccessful health checks means scale up
-            VpcId:
-                Fn::ImportValue: !Sub "${EnvironmentName}-VPCID"
+            VpcId: !Ref UdacityProjectVPC
 
     # Create the Load balancer listener for HTTP traffic and forward the traffic to the target group
     LBListener:
@@ -294,7 +293,7 @@ Resources:
 Outputs:
 
     VPC:
-        Description: References UdacityVPC
+        Description: References Udagram's VPC
         Value: !Ref UdacityProjectVPC
         Export:
             Name: !Sub ${EnvironmentName}-VPCID

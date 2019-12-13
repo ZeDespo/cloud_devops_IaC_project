@@ -49,21 +49,21 @@ Resources:
                     Fn::Sub:
                         ${EnvironmentName}-PRIV-NETS
             LaunchConfigurationName: !Ref WebAppLaunchConfig
-            MinSize: '2'
-            MaxSize: '4'
-#            TargetGroupARNs:
-#                - !Ref EC2WebServer1
-#                - !Ref EC2WebServer2
+            MinSize: 4
+            MaxSize: 8
 
     # Necessary launch configuration for autoscaling group
     WebAppLaunchConfig:
         Type: AWS::AutoScaling::LaunchConfiguration
         Properties:
             ImageId: ami-06d51e91cea0dac8d  # Ubuntu server
-            IamInstanceProfile: !Ref ProfileWithRolesForOurApp
+#            IamInstanceProfile: !Ref ProfileWithRolesForOurApp
+            IamInstanceProfile:
+                Fn::ImportValue: !Sub ${EnvironmentName}-S3ReadAccessForEC2
             SecurityGroups:
             -   !Ref UdagramEC2SG
-            InstanceType: t3.medium
+#            InstanceType: t3.medium
+            InstanceType: t2.micro
             BlockDeviceMappings:
             -   DeviceName: "/dev/sdk"
                 Ebs:
@@ -78,59 +78,6 @@ Resources:
                     cd /var/www/html
                     aws s3 cp s3://udacity-demo-1/udacity.zip .
                     unzip -o udacity.zip
-
-#    # Initialize all of the EC2 instances for each private subnet (2 for each one)
-#    EC2WebServer1:
-#        Type: AWS::EC2::Instance
-#        Properties:
-#            BlockDeviceMappings:
-#            -   DeviceName: "/dev/sdk"
-#                Ebs:
-#                    VolumeSize: '10'
-#            InstanceType: t2.medium  # 2 vCPU, 4 gigs of RAM
-#            ImageId: ami-06d51e91cea0dac8d # Ubuntu server 18
-#            SecurityGroups:
-#            - !Ref UdagramEC2SG
-#            SubnetId: !Select [0, !Split [",", !ImportValue "UdacityProject-PRIV-NETS"]]
-
-#    EC2WebServer1B:
-#        Type: AWS::EC2::Instance
-#        Properties:
-#            BlockDeviceMappings:
-#            -   DeviceName: "/dev/sdk"
-#                Ebs:
-#                    VolumeSize: '10'
-#            InstanceType: t2.medium
-#            ImageId: ami-06d51e91cea0dac8d
-#            SecurityGroups:
-#            - !Ref UdagramEC2SG
-#            SubnetId: !Select [0, !Split [",", !ImportValue "UdacityProject-PRIV-NETS"]]
-
-#    EC2WebServer2:
-#        Type: AWS::EC2::Instance
-#        Properties:
-#            BlockDeviceMappings:
-#            -   DeviceName: "/dev/sdk"
-#                Ebs:
-#                    VolumeSize: '10'
-#            InstanceType: t2.medium
-#            ImageId: ami-06d51e91cea0dac8d
-#            SecurityGroups:
-#            - !Ref UdagramEC2SG
-#            SubnetId: !Select [1, !Split [",", !ImportValue "UdacityProject-PRIV-NETS"]]
-
-#    EC2WebServer2B:
-#        Type: AWS::EC2::Instance
-#        Properties:
-#            BlockDeviceMappings:
-#            -   DeviceName: "/dev/sdk"
-#                Ebs:
-#                    VolumeSize: '10'
-#            InstanceType: t2.medium
-#            ImageId: ami-06d51e91cea0dac8d
-#            SecurityGroups:
-#            - !Ref UdagramEC2SG
-#            SubnetId: !!Select [1, !Split [",", !ImportValue "UdacityProject-PRIV-NETS"]]
 
     # Security group for the EC2 web servers
     UdagramEC2SG:
@@ -151,25 +98,7 @@ Resources:
                 ToPort: -1
                 CidrIp: 0.0.0.0/0
 
-    S3ReadOnlyEC2Role:
-        Type: AWS::IAM::Role
-        Properties:
-            RoleName: S3ReadOnlyAccessEC2
-            AssumeRolePolicyDocument:
-                Statement:
-                -   Action:
-                    - sts:AssumeRole
-                        Effect: Allow
-                    Principal:
-                        Service:
-                        - ec2.amazonaws.com
 
-    #instace profile contains the IAM Role name(s) that we want to associate to our auto scaling EC2 Servers
-    ProfileWithRolesForOurApp:
-        Type: AWS::IAM::InstanceProfile
-        Properties:
-            Roles:
-            - UdagramS3ReadOnlyEC2
 
 
 #Outputs:
