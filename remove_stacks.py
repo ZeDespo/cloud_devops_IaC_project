@@ -9,7 +9,7 @@ import os
 
 class StackTracker:
 
-    def __init__(self, values: Optional[set]=None):
+    def __init__(self, values: Optional[set or dict]=None):
         """
         Sole purpose is to keep track of stacks so asynchronous tasks have a shared resource to pull
         from.
@@ -19,9 +19,9 @@ class StackTracker:
 
 def check_stack(cf: boto3.client, stack_name: str) -> (Dict[str, Any], bool):
     """
-
-    :param cf:
-    :param stack_name:
+    Check if the stack exists
+    :param cf: The cloudformation client from boto3
+    :param stack_name: The name to give the stack
     :return: Whether the stack exists or not and the response that was given from cloudformation
     """
     try:
@@ -48,11 +48,12 @@ def create_logger(debug_mode: Optional[bool]=False) -> logging.getLogger:
 
 async def delete_stack(cf: boto3.client, st: StackTracker, stack_name: str, depends_on: List[str]) -> None:
     """
-
-    :param cf:
-    :param st: Keeps track of all completed stacks so dependent stacks encounter no errors upon creation.
-    :param stack_name:
-    :return:
+    Delete the given stack.
+    :param cf: The cloudformation client
+    :param st: Keeps track of which stacks cannot be removed until their children stacks are deleted.
+    :param stack_name: The name of the stack to delete
+    :param depends_on: The list of parent stacks that can be deleted upon successful deletion of all its children
+    :return: Nothing
     """
     exists = True
     while exists:
@@ -69,7 +70,9 @@ async def delete_stack(cf: boto3.client, st: StackTracker, stack_name: str, depe
                 await asyncio.sleep(5)
         else:
             for dep in depends_on:
-                st.stacks.remove(dep)
+                st.stacks[dep] -= 1
+                if st.stacks[dep] <= 0:
+                    del st.stacks[dep]
             logger.info("Finished deleting {}".format(stack_name))
 
 
@@ -112,16 +115,21 @@ def read_config_file(path: str) -> List[Dict[str, Any]]:
     return config
 
 
-def main():
+def main() -> None:
     """
-
+    Remove all stacks that have to do with the corresponding configuration file.
     :return:
     """
     key, secret, region = load_aws_creds()
     cf = boto3.client('cloudformation', aws_access_key_id=key, aws_secret_access_key=secret, region_name=region)
     config = read_config_file('stack_config.ini')
-    dependencies = set()
-    [[dependencies.add(dep) for dep in c['depends_on']] for c in config]
+    dependencies = {}
+    for c in config:
+        for d in c['depends_on']:
+            if d not in dependencies:
+                dependencies[d] = 0
+            else:
+                dependencies[d] += 1
     stack_tracker = StackTracker(dependencies)
     loop = asyncio.get_event_loop()
     tasks = [delete_stack(cf, stack_tracker, c['stack_name'], c['depends_on']) for c in config]

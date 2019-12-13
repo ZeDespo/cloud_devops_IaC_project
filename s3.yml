@@ -58,3 +58,12 @@ Resources:
                     Principal:
                         Service:
                         - ec2.amazonaws.com
+
+
+Outputs:
+
+    S3Bucket:
+        Description: References Udagram's S3 bucket
+        Value: !Ref S3Bucket
+        Export:
+            Name: !Sub ${EnvironmentName}-S3

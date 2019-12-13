@@ -57,13 +57,11 @@ Resources:
         Type: AWS::AutoScaling::LaunchConfiguration
         Properties:
             ImageId: ami-06d51e91cea0dac8d  # Ubuntu server
-#            IamInstanceProfile: !Ref ProfileWithRolesForOurApp
             IamInstanceProfile:
                 Fn::ImportValue: !Sub ${EnvironmentName}-S3ReadAccessForEC2
             SecurityGroups:
             -   !Ref UdagramEC2SG
-#            InstanceType: t3.medium
-            InstanceType: t2.micro
+            InstanceType: t3.medium
             BlockDeviceMappings:
             -   DeviceName: "/dev/sdk"
                 Ebs:
@@ -99,12 +97,16 @@ Resources:
                 CidrIp: 0.0.0.0/0
 
 
+Outputs:
 
+    WebServers:
+        Description: The webservers in the autoscaling group
+        Value: !Ref WebAppGroup
+        Export:
+            Name: !Sub ${EnvironmentName}-EC2-AutoScalingGroup
 
-#Outputs:
-#
-#    EC2WebServers:
-#        Description: A list of the EC2 instances that host Udagram's web application
-#        Value: !Join [",", [!Ref EC2WebServer1, !Ref EC2WebServer2]]
-#        Export:
-#            Name: !Sub ${EnvironmentName}-EC2Instances
+    WebServer-SG:
+        Description: The webservers' security group
+        Value: !Ref UdagramEC2SG
+        Export:
+            Name: !Sub ${EnvironmentName}-EC2-SecurityGroup
