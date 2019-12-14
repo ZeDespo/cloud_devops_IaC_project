@@ -46,13 +46,20 @@ def create_logger(debug_mode: Optional[bool]=False) -> logging.getLogger:
     return logger
 
 
-def delete_keys(ec2: boto3.client, key_name) -> None:
+def delete_keys(ec2: boto3.client, keys: List[str]) -> None:
     """
-
-    :param ec2:
-    :param key_name:
+    Delete the ssh keys and the local file of them.
+    :param ec2: The ec2 boto client
+    :param keys: List of key names to delete from AWS
     :return:
     """
+    ssh_root = "ssh_keys"
+    shutil.rmtree(ssh_root)
+    for key in keys:
+        try:
+            ec2.delete_key_pair(KeyName=key)
+        except ec2.exceptions.ClientError:  # There is already a key for this name
+            pass
 
 
 async def delete_stack(cf: boto3.client, st: StackTracker, stack_name: str, depends_on: List[str]) -> None:
@@ -96,11 +103,12 @@ def load_aws_creds() -> (str, str, str):
     return credentials.access_key, credentials.secret_key, session.region_name
 
 
-def read_config_file(path: str) -> List[Dict[str, Any]]:
+def parse_config_file(path: str, **kwargs) -> List[Dict[str, Any]]:
     """
-    Read from some INI file.
+    Read from some INI file and perform some preliminary operations based on section, if needed.
     :param path: The ini file path
-    :return: The parsed config file.
+    :param kwargs: Holds the authentication information for AWS
+    :return: The information necessary to create a cloudformation stack
     """
     c = configparser.ConfigParser(allow_no_value=True)
     with open(path, "r") as f:
@@ -112,6 +120,14 @@ def read_config_file(path: str) -> List[Dict[str, Any]]:
         template_path = c.get(section, 'template_path')
         params_path = c.get(section, 'params_path')
         capabilities = c.get(section, 'capabilities')
+        if section == 'ec2':
+            keys = c.get(section, 'keys')
+            keys = [] if not keys else keys.split(',')
+            if keys:
+                logger.debug("Deleting SSH keys for EC2 instances.")
+                ec2 = boto3.client('ec2', **kwargs)
+                delete_keys(ec2, keys)
+                logger.debug("Finished creating keys.")
         config.append(
             {
                 'stack_name': stack_name,
@@ -130,18 +146,9 @@ def main() -> None:
     :return: None
     """
     key, secret, region = load_aws_creds()
-    ec2 = boto3.client('ec2', aws_access_key_id=key, aws_secret_access_key=secret, region_name=region)
-    try:
-        ec2.delete_key_pair(KeyName=web_server_key)
-    except ec2.exceptions.ClientError:  # There is already a key for this name
-        pass
-    try:
-        ec2.delete_key_pair(KeyName=bastion_server_key)
-    except ec2.exceptions.ClientError:  # There is already a key for this name
-        pass
-    shutil.rmtree('ssh_keys')
-    cf = boto3.client('cloudformation', aws_access_key_id=key, aws_secret_access_key=secret, region_name=region)
-    config = read_config_file('stack_config.ini')
+    aws_auth = {'aws_access_key_id': key, 'aws_secret_access_key': secret, 'region_name': region}
+    cf = boto3.client('cloudformation', **aws_auth)
+    config = parse_config_file('stack_config.ini', **aws_auth)
     dependencies = {}
     for c in config:
         for d in c['depends_on']:
@@ -157,7 +164,5 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    web_server_key = 'UdagramWebServers'
-    bastion_server_key = 'BastionServer'
     logger = create_logger()
     main()

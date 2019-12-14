@@ -9,7 +9,7 @@ import asyncio
 
 class StackTracker:
 
-    def __init__(self, values: Optional[set] = None):
+    def __init__(self, values: Optional[set or dict]=None):
         """
         Sole purpose is to keep track of stacks so asynchronous tasks have a shared resource to pull
         from.
@@ -19,10 +19,10 @@ class StackTracker:
 
 def create_ssh_key_pairs(ec2: boto3.client, key_name: str) -> None:
     """
-
+    Create an SSH key with Amazon and save them to a special file.
     :param ec2:
     :param key_name:
-    :return:
+    :return: Nothing
     """
     ssh_root = "ssh_keys"
     try:
@@ -37,7 +37,7 @@ def create_ssh_key_pairs(ec2: boto3.client, key_name: str) -> None:
         logger.debug("{} exists.".format(key_name))
 
 
-def create_logger(debug_mode: Optional[bool] = False) -> logging.getLogger:
+def create_logger(debug_mode: Optional[bool]=False) -> logging.getLogger:
     """
     Self-explanatory, create a logger for streaming output
     :param debug_mode: Is the developer debugging this or no?
