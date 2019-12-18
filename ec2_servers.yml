@@ -2,8 +2,8 @@ Description:
     Alex Despotakis
     Cloud DevOps Engineering Part 2 Project
 
-    This template seeks to replicate the schematics described in aws_diagram.png
-    All of the resources are listed in alphabetical order by type and by name
+    This template will set up the web servers inside the private subnets, bastion servers in the public
+    subnet, and the autoscaling functionality.
 
 Parameters:
 
@@ -63,6 +63,8 @@ Resources:
             LaunchConfigurationName: !Ref WebAppLaunchConfig
             MinSize: 4
             MaxSize: 8
+            TargetGroupARNs:
+                - !Ref WebAppTargetGroup
 
     # Necessary launch configuration for autoscaling group
     WebAppLaunchConfig:
@@ -89,6 +91,25 @@ Resources:
                     cd /var/www/html
                     aws s3 cp s3://udacity-demo-1/udacity.zip .
                     unzip -o udacity.zip
+
+    # Create the ARN role / target group that will perform application health checks
+    # If unhealthy, will scale the resources to handle the new traffic
+    #
+    # Although this is technically a networking resource, it's existence is dependent on these EC2 servers, so it makes
+    # sense for it to be stored here.
+    WebAppTargetGroup:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            HealthCheckIntervalSeconds: 10
+            HealthCheckPath: /
+            HealthCheckProtocol: HTTP
+            HealthCheckTimeoutSeconds: 8
+            HealthyThresholdCount: 2
+            Port: 80  # Same port as Web server security group
+            Protocol: HTTP  # Ping for a HTTP 200 response (means its healthy)
+            UnhealthyThresholdCount: 5  # 5 unsuccessful health checks means scale up
+            VpcId:
+                Fn::ImportValue: !Sub ${EnvironmentName}-VPCID
 
     # Create bastion servers to SSH into the private subnets in each availability zone.
     BastionServer1:

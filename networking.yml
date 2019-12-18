@@ -2,8 +2,8 @@ Description:
     Alex Despotakis
     Cloud DevOps Engineering Part 2 Project
 
-    This template seeks to replicate the schematics described in aws_diagram.png
-    All of the resources are listed in alphabetical order by type and by name
+    This template spins up the VPC, Subnets, Route Tables, Internet Gateway, and Elastic Load Balancer to
+    enable both logical spaces for relevent AWS services and the ability to communicate between them.
 
 Parameters:
 

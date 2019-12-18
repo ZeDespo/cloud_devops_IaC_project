@@ -3,7 +3,7 @@ Description:
     Cloud DevOps Engineering Part 2 Project
 
     This template seeks to replicate the schematics described in aws_diagram.png
-    All of the resources are listed in alphabetical order by type and by name
+    All S3 related items will be found here.
 
 
 Parameters:
@@ -75,8 +75,8 @@ Resources:
 
 Outputs:
 
-    S3Bucket:
+    S3BucketArn:
         Description: References Udagram's S3 bucket
-        Value: !Ref S3Bucket
+        Value: !Join ["", ["arn:aws:s3:::", !Ref S3Bucket]]
         Export:
-            Name: !Sub ${EnvironmentName}-S3
+            Name: !Sub ${EnvironmentName}-S3Arn

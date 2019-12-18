@@ -2,9 +2,7 @@ Description:
     Alex Despotakis
     Cloud DevOps Engineering Part 2 Project
 
-    This template seeks to replicate the schematics described in aws_diagram.png
-    All of the resources are listed in alphabetical order by type and by name
-
+    This template creates the IAM roles and instance profiles to enable the EC2 Webservers to communicate with S3
 Parameters:
 
     EnvironmentName:
@@ -56,12 +54,12 @@ Resources:
             RoleName: S3ReadOnlyAccessEC2
             AssumeRolePolicyDocument:
                 Statement:
-                -   Action:
-                    - sts:AssumeRole
-                    Effect: Allow
-                    Principal:
+                    - Action:
+                        - sts:AssumeRole
+                      Effect: Allow
+                      Principal:
                         Service:
-                        - ec2.amazonaws.com
+                            - ec2.amazonaws.com
 
     #instace profile contains the IAM Role name(s) that we want to associate to our auto scaling EC2 Servers
     ProfileWithRolesForOurApp:
