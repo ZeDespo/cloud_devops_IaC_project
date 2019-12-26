@@ -13,7 +13,7 @@ Demonstrate Infrastructure as Code proficiency through this repository
     template_path=FILE PATH TO CLOUDFORMATION TEMPLATE
     params_path=FILE PATH TO CLOUDFORMATION PARAMETER TEMPLATE
     capabilities=EXTRA PERMISSIONS FOR THE STACK (CAN LEAVE BLANK)
-    depends_on=THE STACK'S DEPENDENCIES IN A CSV FORMAT
+    depends_on=THE STACK'S DEPENDENCIES IN A CSV FORMAT (CAN LEAVE BLANK IF NO DEPENDENCIES)
     ```
     If you are in doubt, follow the example ini file included in the repo.
     
